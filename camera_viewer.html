@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROS 2 Image Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/roslib/build/roslib.min.js"></script>
+</head>
+<body>
+    <h1>ROS 2 Image Viewer</h1>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // Connect to ROS
+        var ros = new ROSLIB.Ros({
+            url: 'ws://192.168.1.49:9090'
+        });
+
+        // Handle connection event
+        ros.on('connection', function() {
+            console.log('Connected to websocket server.');
+        });
+
+        // Handle error event
+        ros.on('error', function(error) {
+            console.log('Error connecting to websocket server:', error);
+        });
+
+        // Handle close event
+        ros.on('close', function() {
+            console.log('Connection to websocket server closed.');
+        });
+
+        // Subscribe to the image topic
+        var listener = new ROSLIB.Topic({
+            ros: ros,
+            name: '/amr20/image_raw',
+            messageType: 'sensor_msgs/msg/Image'
+        });
+
+        // Helper function to convert YUV to RGB
+function yuvToRgb(y, u, v) {
+    const r = y + 1.402 * v;
+    const g = y - 0.344136 * u - 0.714136 * v;
+    const b = y + 1.772 * u;
+    return {
+        r: clamp(r, 0, 255),
+        g: clamp(g, 0, 255),
+        b: clamp(b, 0, 255)
+    };
+}
+
+// Helper function to clamp values between min and max
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+listener.subscribe(function(message) {
+    console.log('Received image data');
+    const width = message.width;
+    const height = message.height;
+    const step = message.step;
+    const encoding = message.encoding;
+
+    if (encoding !== 'yuv422_yuy2') {
+        console.error('Unsupported encoding:', encoding);
+        return;
+    }
+
+    // Decode Base64 encoded data
+    const yuvData = atob(message.data);  // Decoding from Base64
+
+    const canvas = document.getElementById('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(width, height);
+    const rgbData = imageData.data;
+
+    // Convert YUV422 to RGB
+    for (let i = 0, j = 0; i < yuvData.length; i += 4, j += 8) {
+        const y0 = yuvData.charCodeAt(i);
+        const u = yuvData.charCodeAt(i + 1) - 128;
+        const y1 = yuvData.charCodeAt(i + 2);
+        const v = yuvData.charCodeAt(i + 3) - 128;
+
+        const rgb0 = yuvToRgb(y0, u, v);
+        const rgb1 = yuvToRgb(y1, u, v);
+
+        rgbData[j] = rgb0.r;
+        rgbData[j + 1] = rgb0.g;
+        rgbData[j + 2] = rgb0.b;
+        rgbData[j + 3] = 255;  // Alpha channel
+
+        rgbData[j + 4] = rgb1.r;
+        rgbData[j + 5] = rgb1.g;
+        rgbData[j + 6] = rgb1.b;
+        rgbData[j + 7] = 255;  // Alpha channel
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+});
+    </script>
+</body>
+</html>
